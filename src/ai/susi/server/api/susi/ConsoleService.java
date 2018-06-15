@@ -216,14 +216,14 @@ public class ConsoleService extends AbstractAPIHandler implements APIHandler {
             }
             return json;
         });
-        dbAccess.put(Pattern.compile("SELECT +?(.*?) +?FROM +?youtube +?WHERE +?query ??= ??'(.*?)' ??;?"), (flow, matcher) -> {
+        dbAccess.put(Pattern.compile("SELECT +?(.*?) +?FROM +?youtubesearch +?WHERE +?query ??= ??'(.*?)' ??;?"), (flow, matcher) -> {
             SusiThought json = new SusiThought();
             Pattern videoPattern = Pattern.compile("\"/watch\\?v=.*? aria-describedby");
             Pattern keyPattern = Pattern.compile("\"/watch\\?v=(.*?)\"");
             Pattern titlePattern = Pattern.compile("title=\"(.*?)\"");
             try {
                 String query = matcher.group(2);
-                String serviceURL = "https://www.youtube.com/results?search_query=" + query;
+                String serviceURL = "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query, "UTF-8");
                 
                 String s = new String(HttpClient.load(serviceURL), "UTF-8");
             	JSONArray a = new JSONArray();

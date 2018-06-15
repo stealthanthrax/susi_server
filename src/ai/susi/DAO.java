@@ -6,12 +6,12 @@
  *  modify it under the terms of the GNU Lesser General Public
  *  License as published by the Free Software Foundation; either
  *  version 2.1 of the License, or (at your option) any later version.
- *  
+ *
  *  This library is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  *  Lesser General Public License for more details.
- *  
+ *
  *  You should have received a copy of the GNU Lesser General Public License
  *  along with this program in the file lgpl21.txt
  *  If not, see <http://www.gnu.org/licenses/>.
@@ -65,6 +65,7 @@ import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.json.JSONObject;
 
 import org.apache.log4j.ConsoleAppender;
+import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.log4j.PatternLayout;
 
@@ -72,18 +73,18 @@ import org.apache.log4j.PatternLayout;
  * The Data Access Object for the message project.
  * This provides only static methods because the class methods shall be available for
  * all other classes.
- * 
+ *
  * To debug, call elasticsearch directly i.e.:
- * 
+ *
  * get statistics
  * curl localhost:9200/_stats?pretty=true
- * 
+ *
  * get statistics for message index
  * curl -XGET 'http://127.0.0.1:9200/messages?pretty=true'
- * 
+ *
  * get mappings in message index
  * curl -XGET "http://localhost:9200/messages/_mapping?pretty=true"
- * 
+ *
  * get search result from message index
  * curl -XGET 'http://127.0.0.1:9200/messages/_search?q=*&pretty=true'
  */
@@ -99,7 +100,7 @@ public class DAO {
     public static Boolean pullStatus=true;
     private static Logger logger;
     private static LogAppender logAppender;
-    
+
     // AAA Schema for server usage
     private static JsonTray authentication;
     private static JsonTray authorization;
@@ -107,7 +108,15 @@ public class DAO {
     public  static JsonTray passwordreset;
     private static JsonFile login_keys;
     public static JsonTray group;
+
+    //CMS Schema for server usage
     public static JsonTray skillRating;
+    public static JsonTray fiveStarSkillRating;
+    public static JsonTray countryWiseSkillUsage;
+    public static JsonTray skillUsage;
+    public static JsonTray feedbackSkill;
+    public static JsonTray profileDetails;
+
 
     static {
         PatternLayout layout = new PatternLayout("%d{yyyy-MM-dd HH:mm:ss.SSS} %p %c %x - %m%n");
@@ -116,6 +125,7 @@ public class DAO {
         logAppender = new LogAppender(layout, 100000);
         logger.addAppender(logAppender);
         logger.addAppender(new ConsoleAppender(layout));
+        logger.setLevel(Level.INFO);
     }
 
     // built-in artificial intelligence
@@ -127,9 +137,9 @@ public class DAO {
      * @param dataPath the path to the data directory
      */
     public static void init(Map<String, String> configMap, Path dataPath) throws Exception{
-        
+
         log("initializing SUSI DAO");
-        
+
         config = configMap;
         conf_dir = new File("conf");
         bin_dir = new File("bin");
@@ -153,12 +163,20 @@ public class DAO {
         }
         model_watch_dir = new File(new File(data_dir.getParentFile().getParentFile(), "susi_skill_data"), "models");
         susi_skill_repo = new File(data_dir.getParentFile().getParentFile(), "susi_skill_data/.git");
+        File susi_generic_skills = new File(data_dir, "generic_skills");
+        if (!susi_generic_skills.exists()) susi_generic_skills.mkdirs();
+        File susi_generic_skills_media_discovery = new File(susi_generic_skills, "media_discovery");
+        if (!susi_generic_skills_media_discovery.exists()) susi_generic_skills_media_discovery.mkdirs();
 
         // wake up susi
-        File susiinitpath = new File(conf_dir, "susi");
-        susi = model_watch_dir.exists() ?
-                new SusiMind(susi_chatlog_dir, susi_skilllog_dir, susiinitpath, new File(model_watch_dir, "general")) :
-                new SusiMind(susi_chatlog_dir, susi_skilllog_dir, susiinitpath);
+        File system_skills_general = new File(new File(conf_dir, "system_skills"), "general");
+        File system_skills_localmode = new File(new File(conf_dir, "system_skills"), "localmode");
+        susi = new SusiMind(susi_chatlog_dir, susi_skilllog_dir, system_skills_general);
+        if (model_watch_dir.exists()) susi.addWatchpath(new File(model_watch_dir, "general"));
+        if (DAO.getConfig("local.mode", false)) {
+            susi.addWatchpath(system_skills_localmode);
+            susi.addWatchpath(susi_generic_skills_media_discovery);
+        }
 
         // initialize the memory as a background task to prevent that this blocks too much
         new Thread() {
@@ -168,34 +186,34 @@ public class DAO {
         }.start();
 
         // initialize public and private keys
-		public_settings = new Settings(new File("data/settings/public.settings.json"));
-		File private_file = new File("data/settings/private.settings.json");
-		private_settings = new Settings(private_file);
-		OS.protectPath(private_file.toPath());
-		
-		if (!private_settings.loadPrivateKey() || !public_settings.loadPublicKey()) {
-        	log("Can't load key pair. Creating new one");
-        	
-        	// create new key pair
-        	KeyPairGenerator keyGen;
-			try {
-				String algorithm = "RSA";
-				keyGen = KeyPairGenerator.getInstance(algorithm);
-				keyGen.initialize(2048);
-				KeyPair keyPair = keyGen.genKeyPair();
-				private_settings.setPrivateKey(keyPair.getPrivate(), algorithm);
-				public_settings.setPublicKey(keyPair.getPublic(), algorithm);
-			} catch (NoSuchAlgorithmException e) {
-				throw e;
-			}
-			log("Key creation finished. Peer hash: " + public_settings.getPeerHashAlgorithm() + " " + public_settings.getPeerHash());
+        public_settings = new Settings(new File("data/settings/public.settings.json"));
+        File private_file = new File("data/settings/private.settings.json");
+        private_settings = new Settings(private_file);
+        OS.protectPath(private_file.toPath());
+
+        if (!private_settings.loadPrivateKey() || !public_settings.loadPublicKey()) {
+            log("Can't load key pair. Creating new one");
+
+            // create new key pair
+            KeyPairGenerator keyGen;
+            try {
+                String algorithm = "RSA";
+                keyGen = KeyPairGenerator.getInstance(algorithm);
+                keyGen.initialize(2048);
+                KeyPair keyPair = keyGen.genKeyPair();
+                private_settings.setPrivateKey(keyPair.getPrivate(), algorithm);
+                public_settings.setPublicKey(keyPair.getPublic(), algorithm);
+            } catch (NoSuchAlgorithmException e) {
+                throw e;
+            }
+            log("Key creation finished. Peer hash: " + public_settings.getPeerHashAlgorithm() + " " + public_settings.getPeerHash());
         }
         else{
-        	log("Key pair loaded from file. Peer hash: " + public_settings.getPeerHashAlgorithm() + " " + public_settings.getPeerHash());
+            log("Key pair loaded from file. Peer hash: " + public_settings.getPeerHashAlgorithm() + " " + public_settings.getPeerHash());
         }
-        
+
         // check if elasticsearch shall be accessed as external cluster
-        
+
         // open AAA storage
         Path settings_dir = dataPath.resolve("settings");
         settings_dir.toFile().mkdirs();
@@ -240,6 +258,47 @@ public class DAO {
         OS.protectPath(skillRating_per);
         OS.protectPath(skillRating_vol);
 
+        /*Profile Details storage*/
+        Path susi_profile_details_dir = dataPath.resolve("profile");
+        susi_profile_details_dir.toFile().mkdirs();
+        Path profileDetails_per = susi_profile_details_dir.resolve("profileDetails.json");
+        Path profileDetails_vol = susi_profile_details_dir.resolve("profileDetails_session.json");
+        profileDetails = new JsonTray(profileDetails_per.toFile(), profileDetails_vol.toFile(), 1000000);
+        OS.protectPath(profileDetails_per);
+        OS.protectPath(profileDetails_vol);
+
+        //5 Star Skill Rating storage
+        Path fiveStarSkillRating_per = susi_skill_rating_dir.resolve("fiveStarSkillRating.json");
+        Path fiveStarSkillRating_vol = susi_skill_rating_dir.resolve("fiveStarSkillRating_session.json");
+        fiveStarSkillRating = new JsonTray(fiveStarSkillRating_per.toFile(), fiveStarSkillRating_vol.toFile(), 1000000);
+        OS.protectPath(fiveStarSkillRating_per);
+        OS.protectPath(fiveStarSkillRating_vol);
+
+        // Country wise skill usage
+        Path country_wise_skill_usage_dir = dataPath.resolve("skill_usage");
+        country_wise_skill_usage_dir.toFile().mkdirs();
+        Path countryWiseSkillUsage_per = country_wise_skill_usage_dir.resolve("countryWiseSkillUsage.json");
+        Path countryWiseSkillUsage_vol = country_wise_skill_usage_dir.resolve("countryWiseSkillUsage_session.json");
+        countryWiseSkillUsage = new JsonTray(countryWiseSkillUsage_per.toFile(), countryWiseSkillUsage_vol.toFile(), 1000000);
+        OS.protectPath(countryWiseSkillUsage_per);
+        OS.protectPath(countryWiseSkillUsage_vol);
+
+        // Skill usage storage
+        Path susi_skill_usage_dir = dataPath.resolve("skill_usage");
+        susi_skill_usage_dir.toFile().mkdirs();
+        Path skillUsage_per = susi_skill_usage_dir.resolve("skillUsage.json");
+        Path skillUsage_vol = susi_skill_usage_dir.resolve("skillUsage_session.json");
+        skillUsage = new JsonTray(skillUsage_per.toFile(), skillUsage_vol.toFile(), 1000000);
+        OS.protectPath(skillUsage_per);
+        OS.protectPath(skillUsage_vol);
+
+        //Feedback Skill storage
+        Path feedbackSkill_per = susi_skill_rating_dir.resolve("feedbackSkill.json");
+        Path feedbackSkill_vol = susi_skill_rating_dir.resolve("feedbackSkill_session.json");
+        feedbackSkill = new JsonTray(feedbackSkill_per.toFile(), feedbackSkill_vol.toFile(), 1000000);
+        OS.protectPath(feedbackSkill_per);
+        OS.protectPath(feedbackSkill_vol);
+
         // open index
         Path index_dir = dataPath.resolve("index");
         if (index_dir.toFile().exists()) OS.protectPath(index_dir); // no other permissions to this path
@@ -250,7 +309,7 @@ public class DAO {
         dictionaries = new File(external_data, "dictionaries");
         dictionaries.mkdirs();
 
-        
+
         Path log_dump_dir = dataPath.resolve("log");
         log_dump_dir.toFile().mkdirs();
         OS.protectPath(log_dump_dir); // no other permissions to this path
@@ -280,7 +339,7 @@ public class DAO {
 
         log("finished DAO initialization");
     }
-    
+
     public static File getAssetFile(String screen_name, String id_str, String file) {
         String letter0 = ("" + screen_name.charAt(0)).toLowerCase();
         String letter1 = ("" + screen_name.charAt(1)).toLowerCase();
@@ -293,10 +352,10 @@ public class DAO {
      */
     public static void close() {
         log("closing DAO");
-        
+
         // close the tracker
         access.close();
-        
+
         // close AAA for session hand-over
         authentication.close();
         authorization.close();
@@ -305,9 +364,9 @@ public class DAO {
 
         log("closed DAO");
     }
-    
+
     /**
-     * get values from 
+     * get values from
      * @param key
      * @param default_val
      * @return
@@ -316,12 +375,12 @@ public class DAO {
         String value = config.get(key);
         return value == null ? default_val : value;
     }
-    
+
     public static String[] getConfig(String key, String[] default_val, String delim) {
         String value = config.get(key);
         return value == null || value.length() == 0 ? default_val : value.split(delim);
     }
-    
+
     public static long getConfig(String key, long default_val) {
         String value = config.get(key);
         try {
@@ -330,7 +389,7 @@ public class DAO {
             return default_val;
         }
     }
-    
+
     public static double getConfig(String key, double default_val) {
         String value = config.get(key);
         try {
@@ -344,11 +403,11 @@ public class DAO {
         String value = config.get(key);
         return value == null ? default_val : value.equals("true") || value.equals("on") || value.equals("1");
     }
-    
+
     public static Set<String> getConfigKeys() {
         return config.keySet();
     }
-    
+
     public static final Random random = new Random(System.currentTimeMillis());
 
     public static void log(String line) {
@@ -362,76 +421,76 @@ public class DAO {
     public static void severe(String line, Throwable e) {
         logger.warn(line, e);
     }
-    
+
     public static void severe(Throwable e) {
         logger.warn("", e);
     }
-    
 
-	/**
-	 * Registers a key for an identity.
-	 * TODO: different algorithms
-	 * @param id
-	 * @param key
+
+    /**
+     * Registers a key for an identity.
+     * TODO: different algorithms
+     * @param id
+     * @param key
      */
-	public static void registerKey(ClientIdentity id, PublicKey key) throws APIException{
-		JSONObject user_obj;
-		try{
-			user_obj = DAO.login_keys.getJSONObject(id.toString());
-		} catch (Throwable e){
-			user_obj = new JSONObject();
-			DAO.login_keys.put(id.toString(), user_obj);
-		}
-		user_obj.put(IO.getKeyHash(key), IO.getKeyAsString(key));
-		DAO.login_keys.commit();
-	}
-
-	public static String loadKey(ClientIdentity identity, String keyhash) {
-		String id = identity.toString();
-		if (!login_keys.has(id)) return null;
-		JSONObject json = login_keys.getJSONObject(id);
-		if (!json.has(keyhash)) return null;
-		return json.getString(keyhash);
-	}
-	
-	public static Authentication getAuthentication(@Nonnull ClientCredential credential) {
-		return new Authentication(credential, authentication);
-	}
-	
-	public static boolean hasAuthentication(@Nonnull ClientCredential credential) {
-		return authentication.has(credential.toString());
-	}
-	
-	public static void deleteAuthentication(@Nonnull ClientCredential credential) {
-		authentication.remove(credential.toString());
-	}
-
-	public static Authorization getAuthorization(@Nonnull ClientIdentity identity) {
-		 return new Authorization(identity, authorization);
-	}
-	
-	public static boolean hasAuthorization(@Nonnull ClientIdentity credential) {
-		return authorization.has(credential.toString());
-	}
-	
-	public static Collection<ClientIdentity> getAuthorizedClients() {
-		ArrayList<ClientIdentity> i = new ArrayList<>();
-		for (String id: authorization.keys()) {
-		    if(id.contains("host"))
-		        continue;
-			i.add(new ClientIdentity(id));
-		}
-		return i;
-	}
-
-	public static void deleteAuthorization(@Nonnull ClientIdentity credential) {
-	    authorization.remove(credential.toString());
+    public static void registerKey(ClientIdentity id, PublicKey key) throws APIException{
+        JSONObject user_obj;
+        try{
+            user_obj = DAO.login_keys.getJSONObject(id.toString());
+        } catch (Throwable e){
+            user_obj = new JSONObject();
+            DAO.login_keys.put(id.toString(), user_obj);
+        }
+        user_obj.put(IO.getKeyHash(key), IO.getKeyAsString(key));
+        DAO.login_keys.commit();
     }
-    
+
+    public static String loadKey(ClientIdentity identity, String keyhash) {
+        String id = identity.toString();
+        if (!login_keys.has(id)) return null;
+        JSONObject json = login_keys.getJSONObject(id);
+        if (!json.has(keyhash)) return null;
+        return json.getString(keyhash);
+    }
+
+    public static Authentication getAuthentication(@Nonnull ClientCredential credential) {
+        return new Authentication(credential, authentication);
+    }
+
+    public static boolean hasAuthentication(@Nonnull ClientCredential credential) {
+        return authentication.has(credential.toString());
+    }
+
+    public static void deleteAuthentication(@Nonnull ClientCredential credential) {
+        authentication.remove(credential.toString());
+    }
+
+    public static Authorization getAuthorization(@Nonnull ClientIdentity identity) {
+        return new Authorization(identity, authorization);
+    }
+
+    public static boolean hasAuthorization(@Nonnull ClientIdentity credential) {
+        return authorization.has(credential.toString());
+    }
+
+    public static Collection<ClientIdentity> getAuthorizedClients() {
+        ArrayList<ClientIdentity> i = new ArrayList<>();
+        for (String id: authorization.keys()) {
+            if(id.contains("host"))
+                continue;
+            i.add(new ClientIdentity(id));
+        }
+        return i;
+    }
+
+    public static void deleteAuthorization(@Nonnull ClientIdentity credential) {
+        authorization.remove(credential.toString());
+    }
+
     public static Accounting getAccounting(@Nonnull ClientIdentity identity) {
-         return new Accounting(identity, accounting);
+        return new Accounting(identity, accounting);
     }
-    
+
     public static boolean hasAccounting(@Nonnull ClientIdentity credential) {
         return accounting.has(credential.toString());
     }
@@ -439,9 +498,9 @@ public class DAO {
     public static Repository getRepository() throws IOException {
         FileRepositoryBuilder builder = new FileRepositoryBuilder();
         Repository repository = builder.setGitDir((susi_skill_repo))
-                        .readEnvironment() // scan environment GIT_* variables
-                        .findGitDir() // scan up the file system tree
-                        .build();
+                .readEnvironment() // scan environment GIT_* variables
+                .findGitDir() // scan up the file system tree
+                .build();
         return repository;
     }
 
@@ -461,7 +520,7 @@ public class DAO {
                 try {
                     EmailHandler.sendEmail(getConfig("skill_repo.admin_email",""), "SUSI Skill Data Conflicts", getConflictsMailContent(mergeResult));
                 } catch (Throwable e) {
-                 e.printStackTrace();
+                    e.printStackTrace();
                 }
 
             } else {
@@ -469,7 +528,7 @@ public class DAO {
                 push.setCredentialsProvider(new UsernamePasswordCredentialsProvider(getConfig("github.username", ""), getConfig("github.password","")));
                 push.call();
             }
-            
+
         } catch (GitAPIException e) {
             throw new IOException (e.getMessage());
         }
@@ -489,7 +548,7 @@ public class DAO {
             assert false; // this should not happen
             userEmail = "anonymous@";
         }
-        
+
         try {
             git.commit()
                     .setAllowEmpty(false)
@@ -503,7 +562,7 @@ public class DAO {
             RefSpec spec = new RefSpec(branch + ":" + branch);
 
             // TODO: pull & merge
-            
+
             PushCommand push = git.push();
             push.setForce(true);
             push.setCredentialsProvider(new UsernamePasswordCredentialsProvider(getConfig("github.username", ""), getConfig("github.password","")));
@@ -512,7 +571,7 @@ public class DAO {
             throw new IOException (e.getMessage());
         }
     }
-    
+
     private static String getConflictsMailContent(MergeResult mergeResult) throws APIException {
         // get template file
         String result="";

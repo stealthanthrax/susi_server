@@ -8,6 +8,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import javax.mail.Folder;
 import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.util.*;
@@ -42,24 +43,52 @@ public class ListSkillService extends AbstractAPIHandler implements APIHandler {
 
         String model_name = call.get("model", "general");
         File model = new File(DAO.model_watch_dir, model_name);
-        String group_name = call.get("group", "Knowledge");
-        File group = new File(model, group_name);
+        String group_name = call.get("group", "All");
         String language_name = call.get("language", "en");
-        File language = new File(group, language_name);
-        JSONObject json = new JSONObject(true);
-        json.put("accepted", false);
-        JSONObject skillObject = new JSONObject();
-        ArrayList<String> fileList = new ArrayList<String>();
-        listFilesForFolder(language, fileList);
         JSONArray jsonArray = new JSONArray();
+        JSONObject json = new JSONObject(true);
+        JSONObject skillObject = new JSONObject();
 
-        for (String skill_name : fileList) {
-            //System.out.println(skill_name);
-            skill_name = skill_name.replace(".txt", "");
-            JSONObject skillMetadata = SusiSkill.getSkillMetadata(model_name, group_name, language_name, skill_name);
-            
-            jsonArray.put(skillMetadata);
-            skillObject.put(skill_name, skillMetadata);
+        // Returns susi skills list of all groups
+        if (group_name.equals("All")) {
+            File allGroup = new File(String.valueOf(model));
+            ArrayList<String> folderList = new ArrayList<String>();
+            listFoldersForFolder(allGroup, folderList);
+            json.put("accepted", false);
+
+            for (String temp_group_name : folderList){
+                File group = new File(model, temp_group_name);
+                File language = new File(group, language_name);
+                ArrayList<String> fileList = new ArrayList<String>();
+                listFilesForFolder(language, fileList);
+
+                for (String skill_name : fileList) {
+                    //System.out.println(skill_name);
+                    skill_name = skill_name.replace(".txt", "");
+                    JSONObject skillMetadata = SusiSkill.getSkillMetadata(model_name, temp_group_name, language_name, skill_name);
+
+                    jsonArray.put(skillMetadata);
+                    skillObject.put(skill_name, skillMetadata);
+                }
+            }
+
+        }
+        // Returns susi skills list of a particular group
+        else {
+            File group = new File(model, group_name);
+            File language = new File(group, language_name);
+            json.put("accepted", false);
+            ArrayList<String> fileList = new ArrayList<String>();
+            listFilesForFolder(language, fileList);
+
+            for (String skill_name : fileList) {
+                //System.out.println(skill_name);
+                skill_name = skill_name.replace(".txt", "");
+                JSONObject skillMetadata = SusiSkill.getSkillMetadata(model_name, group_name, language_name, skill_name);
+
+                jsonArray.put(skillMetadata);
+                skillObject.put(skill_name, skillMetadata);
+            }
         }
 
         // if filter is applied, sort the data accordingly
@@ -90,7 +119,7 @@ public class ListSkillService extends AbstractAPIHandler implements APIHandler {
 
             if (filter_type.equals("date")) {
                 if (filter_name.equals("ascending")) {
-
+                    
                 } else {
 
                 }
@@ -130,9 +159,54 @@ public class ListSkillService extends AbstractAPIHandler implements APIHandler {
                                 valA = a.get(KEY_NAME).toString();
                                 valB = b.get(KEY_NAME).toString();
                             } catch (JSONException e) {
+                                e.getMessage();
                                 //do nothing
                             }
                             return valB.compareTo(valA);
+                        }
+                    });
+                }
+            }
+            else if (filter_type.equals("rating")) {
+                if (filter_name.equals("ascending")) {
+                    Collections.sort(jsonValues, new Comparator<JSONObject>() {
+
+                        @Override
+                        public int compare(JSONObject a, JSONObject b) {
+                            float valA;
+                            float valB;
+                            int result=0;
+
+                            try {
+                                valA = a.getJSONObject("skill_rating").getJSONObject("stars").getFloat("avg_star");
+                                valB = b.getJSONObject("skill_rating").getJSONObject("stars").getFloat("avg_star");
+                                result = Float.compare(valA, valB);
+
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                            }
+                            return result;
+                        }
+                    });
+                }
+                else {
+                    Collections.sort(jsonValues, new Comparator<JSONObject>() {
+
+                        @Override
+                        public int compare(JSONObject a, JSONObject b) {
+                            float valA;
+                            float valB;
+                            int result=0;
+
+                            try {
+                                valA = a.getJSONObject("skill_rating").getJSONObject("stars").getFloat("avg_star");
+                                valB = b.getJSONObject("skill_rating").getJSONObject("stars").getFloat("avg_star");
+                                result = Float.compare(valB, valA);
+
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                            }
+                            return result;
                         }
                     });
                 }
@@ -160,6 +234,15 @@ public class ListSkillService extends AbstractAPIHandler implements APIHandler {
         if (filesInFolder != null) {
             Arrays.stream(filesInFolder)
                     .filter(fileEntry -> !fileEntry.isDirectory() && !fileEntry.getName().startsWith("."))
+                    .forEach(fileEntry -> fileList.add(fileEntry.getName() + ""));
+        }
+    }
+
+    private void listFoldersForFolder(final File folder, ArrayList<String> fileList) {
+        File[] filesInFolder = folder.listFiles();
+        if (filesInFolder != null) {
+            Arrays.stream(filesInFolder)
+                    .filter(fileEntry -> fileEntry.isDirectory() && !fileEntry.getName().startsWith("."))
                     .forEach(fileEntry -> fileList.add(fileEntry.getName() + ""));
         }
     }

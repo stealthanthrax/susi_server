@@ -36,6 +36,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -57,7 +58,7 @@ public class SusiMind {
     private final Map<SusiSkill.ID, Set<String>> skillexamples; // a map from an skill path to one example
     private final Map<SusiSkill.ID, SusiSkill> skillMetadata; // a map from skill path to description
     private final Map<SusiSkill.ID, String> skillImage; // a map from skill path to skill image
-    private final File[] watchpaths;
+    private final List<File> watchpaths;
     private final File susi_chatlog_dir, susi_skilllog_dir; // a path where the memory looks for new additions of knowledge with memory files
     private final Map<File, Long> observations; // a mapping of mind memory files to the time when the file was read the last time
     private final SusiMemory memories; // conversation logs are memories
@@ -65,10 +66,8 @@ public class SusiMind {
 
     public SusiMind(File susi_chatlog_dir, File susi_skilllog_dir, File... watchpaths) {
         // initialize class objects
-        this.watchpaths = watchpaths;
-        for (int i = 0; i < watchpaths.length; i++) {
-            if (watchpaths[i] != null) watchpaths[i].mkdirs();
-        }
+        this.watchpaths = new ArrayList<>();
+        for (int i = 0; i < watchpaths.length; i++) addWatchpath(watchpaths[i]);
         this.susi_chatlog_dir = susi_chatlog_dir;
         this.susi_skilllog_dir = susi_skilllog_dir;
         if (this.susi_chatlog_dir != null) this.susi_chatlog_dir.mkdirs();
@@ -84,6 +83,14 @@ public class SusiMind {
             e.printStackTrace();
         }
         this.activeSkill = null;
+    }
+    
+    public SusiMind addWatchpath(File path) {
+        if (path != null) {
+            path.mkdirs();
+            this.watchpaths.add(path);
+        }
+        return this;
     }
     
     public void initializeMemory() {
@@ -119,8 +126,8 @@ public class SusiMind {
     }
 
     public SusiMind observe() throws IOException {
-        for (int i = 0; i < watchpaths.length; i++) {
-            observe(watchpaths[i]);
+        for (int i = 0; i < watchpaths.size(); i++) {
+            observe(watchpaths.get(i));
         }
         return this;
     }
@@ -230,6 +237,8 @@ public class SusiMind {
                     skill.setAuthor(json.getString("author"));
                 if(json.has("author_url"))
                    skill.setAuthorURL(json.getString("author_url"));
+               if(json.has("author_email"))
+                   skill.setAuthorEmail(json.getString("author_email"));
                 if(json.has("developer_privacy_policy"))
                    skill.setDeveloperPrivacyPolicy(json.getString("developer_privacy_policy"));
                 if(json.has("terms_of_use"))
@@ -405,22 +414,23 @@ public class SusiMind {
     }
     
     public class Reaction {
-        private String expression;
+    	private SusiAction action;
         private SusiThought mindstate;
-        
+
         public Reaction(String query, SusiLanguage userLanguage, String client, SusiThought observation, SusiMind... minds) throws ReactionException {
             List<SusiThought> thoughts = react(query, userLanguage, 1, client, observation, minds);
-            thoughts = SusiThought.filterExpressionAction(thoughts);
-            
-            if (thoughts.size() == 0) throw new ReactionException("empty mind, no idea");
             this.mindstate = thoughts.get(0);
             List<SusiAction> actions = this.mindstate.getActions();
-            SusiAction action = actions.get(0);
-            this.expression = action.getStringAttr("expression");
+            if (actions.isEmpty()) throw new ReactionException("this mind has no idea what it should do.");
+            this.action = actions.get(0);
+        }
+        
+        public SusiAction getAction() {
+            return this.action;
         }
         
         public String getExpression() {
-            return this.expression;
+            return this.action.getStringAttr("expression");
         }
         
         public SusiThought getMindstate() {
@@ -431,7 +441,7 @@ public class SusiMind {
             return this.getExpression();
         }
     }
-    
+
     public static class ReactionException extends Exception {
 		private static final long serialVersionUID = 724048490861319902L;
 		public ReactionException(String message) {
